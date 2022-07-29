@@ -43,12 +43,19 @@ let testsCodeGlob =
     ++ (__SOURCE_DIRECTORY__ </> ".." </> "tests/**/*.fsx")
     -- (__SOURCE_DIRECTORY__ </> ".." </> "tests/**/obj/**/*.fs")
 
+let benchmarksCodeGlob =
+    !! (__SOURCE_DIRECTORY__ </> ".." </> "benchmarks/**/*.fs")
+    ++ (__SOURCE_DIRECTORY__ </> ".." </> "benchmarks/**/*.fsx")
+    -- (__SOURCE_DIRECTORY__ </> ".." </> "benchmarks/**/obj/**/*.fs")
+
 let srcGlob =__SOURCE_DIRECTORY__ </> ".." </> "src/**/*.??proj"
 let testsGlob = __SOURCE_DIRECTORY__ </> ".." </> "tests/**/*.??proj"
+let benchmarksGlob = __SOURCE_DIRECTORY__ </> ".." </> "benchmarks/**/*.??proj"
 
-let srcAndTest =
+let srcAndTestAndBenchmarks =
     !! srcGlob
     ++ testsGlob
+    ++ benchmarksGlob
 
 let distDir = __SOURCE_DIRECTORY__ </> ".." </> "dist"
 let distGlob = distDir </> "*.nupkg"
@@ -284,6 +291,7 @@ let clean _ =
 
     !! srcGlob
     ++ testsGlob
+    ++ benchmarksGlob
     |> Seq.collect(fun p ->
         ["bin";"obj"]
         |> Seq.map(fun sp -> IO.Path.GetDirectoryName p </> sp ))
@@ -477,6 +485,16 @@ let watchTests _ =
     let cancelEvent = Console.CancelKeyPress |> Async.AwaitEvent |> Async.RunSynchronously
     cancelEvent.Cancel <- true
 
+let runBenchmarks _ =
+    !! benchmarksGlob
+    |> Seq.map(fun proj -> fun () ->
+        dotnet.run
+            (DotNet.Options.withWorkingDirectory (IO.Path.GetDirectoryName proj))
+            (sprintf $"--project {proj}")
+        |> ignore
+    )
+    |> Seq.iter (invokeAsync >> Async.Catch >> Async.Ignore >> Async.Start)
+
 let generateAssemblyInfo _ =
 
     let (|Fsproj|Csproj|Vbproj|) (projFileName:string) =
@@ -511,7 +529,7 @@ let generateAssemblyInfo _ =
             (getAssemblyInfoAttributes projectName)
         )
 
-    srcAndTest
+    srcAndTestAndBenchmarks
     |> Seq.map getProjectDetails
     |> Seq.iter (fun (projFileName, _, folderName, attributes) ->
         match projFileName with
@@ -599,6 +617,7 @@ let formatCode _ =
         [
             srcCodeGlob
             testsCodeGlob
+            benchmarksCodeGlob
         ]
         |> Seq.collect id
         // Ignore AssemblyInfo
@@ -614,6 +633,7 @@ let checkFormatCode _ =
         [
             srcCodeGlob
             testsCodeGlob
+            benchmarksCodeGlob
         ]
         |> Seq.collect id
         // Ignore AssemblyInfo
@@ -673,6 +693,7 @@ let initTargets () =
     Target.create "DotnetTest" dotnetTest
     Target.create "GenerateCoverageReport" generateCoverageReport
     Target.create "WatchTests" watchTests
+    Target.create "RunBenchmarks" runBenchmarks
     Target.create "GenerateAssemblyInfo" generateAssemblyInfo
     Target.create "DotnetPack" dotnetPack
     Target.create "SourceLinkTest" sourceLinkTest
